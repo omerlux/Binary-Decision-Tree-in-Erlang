@@ -10,49 +10,79 @@
 -author("omerlux").
 
 %%API
--export([getVars/1,compExp/1,assignVar/3]).
+-export([getVars/1,computeExp/1,assignVar/3]).
 %%%-------------------------------------------------------------------
-%% compExp  - computes the expression {Op, BF} when BF is bool function or a variable
-compExp({'not',Var}) when Var=:=1 -> 0;
-compExp({'not',Var}) when Var=:=0 -> 1;
-compExp({'not',BF}) -> compExp({'not',compExp(BF)});    %BF isn't a variable now
-compExp({Op,Tuple}) ->  % Op is or/and
+%% computeExp  - COMPUTES the EXPRESSION {Op, BF} when BF is bool function or a variable
+computeExp({'not',Var}) when Var=:=1 -> 0;
+computeExp({'not',Var}) when Var=:=0 -> 1;
+computeExp({'not',BF}) -> BF_ans = computeExp(BF), % computing BF first
+  case BF_ans of
+    BF -> {'not',BF};               % there is nothing to change if the BF_ans=BF
+    _ -> computeExp({'not',BF_ans})    % BF isn't a variable now
+  end;
+computeExp({Op,Tuple}) ->  % Op is or/and
   case Op of
     'or' ->   % defining the or expression
       case Tuple of
         {A,B} when A=:=1 orelse B=:=1 -> 1;
         {0,0} -> 0;
-        {A,B} when A=:=0 -> compExp(B);
-        {A,B} when B=:=0 -> compExp(A);
-        {A,B} when A=:=B -> compExp(A);
-        {A,B} -> compExp({'or',{compExp(A),compExp(B)}}) % they are both bool func - recursive result
+        {A,B} when A=:=0 -> computeExp(B);
+        {A,B} when B=:=0 -> computeExp(A);
+        {A,B} when A=:=B -> computeExp(A);
+        {A,B} -> A_ans = computeExp(A), B_ans = computeExp(B), % computing A and B first
+          case {A_ans,B_ans} of
+            {A,B} -> {'or',{A,B}};                % the answer did not change, cannot minimize farther
+            {A,_} -> computeExp({'or',{A,B_ans}});   % B has changed - try minimize it
+            {_,B} -> computeExp({'or',{A_ans,B}});   % A has changed - try minimize it
+            {_,_} -> computeExp({'or',{A_ans,B_ans}})% both changed - minimize
+          end
       end;
     'and' ->   % defining the and experession
       case Tuple of
         {A,B} when A=:=0 orelse B=:=0 -> 0;
         {1,1} -> 1;
-        {A,B} when A=:=1 -> compExp(B);
-        {A,B} when B=:=1 -> compExp(A);
-        {A,B} when A=:=B -> compExp(A);
-        {A,B} -> compExp({'or',{compExp(A),compExp(B)}}) % they are both bool func - recursive result
+        {A,B} when A=:=1 -> computeExp(B);
+        {A,B} when B=:=1 -> computeExp(A);
+        {A,B} when A=:=B -> computeExp(A);
+        {A,B} -> A_ans = computeExp(A), B_ans = computeExp(B), % computing A and B before
+          case {A_ans,B_ans} of
+            {A,B} -> {'and',{A,B}};                % the answer did not change, cannot minimize farther
+            {A,_} -> computeExp({'and',{A,B_ans}});   % B has changed - try minimize it
+            {_,B} -> computeExp({'and',{A_ans,B}});   % A has changed - try minimize it
+            {_,_} -> computeExp({'and',{A_ans,B_ans}})% both changed - minimize
+          end
       end
   end;
-compExp({Var}) -> Var.    % for a single variable
+computeExp(BF) -> BF.        % when there are only variables in the expression - cannot minimize
 
 
-%% assignVar - return a tuple {A,B} where all Var will change into the Value
+%% assignVar - return a tuple {A,B} where all VAR will CHANGE into the VALUE
 assignVar(Var,Value,Var) -> Value;
 assignVar(_,_,Other) when not is_tuple(Other) -> Other;
 assignVar(Var,Value,{A,B}) -> {assignVar(Var,Value,A),assignVar(Var,Value,B)}.
 
 
-%% expToThree - returns a binary three using tuples from the boolean function given
-% each node will be from the form { {Left/Value/Right}, #Height, #Nodes, #Leaves}
-% Node = {Val}, {Left,Right}, {Left/Right, {Val}
-expToThree()
+%% exp2Tree - returns a binary tree using tuples from the boolean function given
+% each node will be from the form { {Left,Value,Right}, #Height, #Nodes, #Leaves}
+exp2Tree(BF,_) when is_number(BF) -> {BF,0,0,0};        % BF is a leaf
+exp2Tree(BF,[H|T]) ->   % H will be the next node, wil spread to 0 or 1
+  createNode(
+    exp2Tree( computeExp( assignVar(H,0,BF) ),T ),   % Left Node - replacing H with 0 and minimizing
+    H,                                               % Node Value
+    exp2Tree( computeExp( assignVar(H,1,BF) ),T )    % Right Node - replacing H with 1 and minimizing
+  ).
+
+%% createNode - creates a node in a tree - { {Left,Value,Right}, #Height, #Nodes, #Leaves}
+% element (N,Tuple) = The method returns the Nth element in the tuple.
+createNode(L,Val,R) -> {
+  {element(1,L),Val,element(1,R)},      % the {Left,Value,Right} tuple
+  1 + max(element(2,L),element(2,R)),   % summing the heights
+  1 + element(3,L) + element(3,R),      % summing the nodes
+  element(4,L) + element(4,L)           % summing the leaves
+}.
 
 
-%% getVars - returns the X variable of the list
+%% getVars - returns the Xi variable in a list
 getVars(BoolFunc) -> cleanDuplicates( getVars(BoolFunc,[]) ).               % getting vars and cleaning duplicates
 getVars(BoolFunc,List) ->
   case BoolFunc of
