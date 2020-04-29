@@ -6,11 +6,11 @@
 %%% @end
 %%% Created : 28 April 2019 12:19 PM
 %%%-------------------------------------------------------------------
--module(bdd). % TODO: Change name exf_205500390
+-module(exf_205500390). % TODO: Change name exf_205500390
 -author("omerlux").
 
 %%API
--export([exp_to_bdd/2]).
+-export([exp_to_bdd/2, solve_bdd/2,assignVar/3,computeExp/1]).
 %%%-------------------------------------------------------------------
 %% computeExp  - COMPUTES the EXPRESSION {Op, BF} when BF is bool function or a variable
 computeExp({'not',Var}) when Var=:=1 -> 0;
@@ -57,9 +57,11 @@ computeExp(BF) -> BF.        % when there are only variables in the expression -
 
 
 %% assignVar - return a tuple {A,B} where all VAR will CHANGE into the VALUE
-assignVar(Var,Value,Var) -> Value;
-assignVar(_,_,Other) when not is_tuple(Other) -> Other;
-assignVar(Var,Value,{A,B}) -> {assignVar(Var,Value,A),assignVar(Var,Value,B)}.
+assignVar(Var,Value,Var) -> Value;                                                 % only a variable
+assignVar(_,_,Other) when not is_tuple(Other), not is_list(Other) -> Other;        % assign only for lists and tuples
+assignVar(Var,Value,{A,B}) -> {assignVar(Var,Value,A),assignVar(Var,Value,B)};     % tuple
+assignVar(_,_,[]) -> [];                                                           % empty list
+assignVar(Var,Value,[H|T]) -> [assignVar(Var,Value,H)|assignVar(Var,Value,T)].     % list of tuples
 
 
 %% exp2Tree - returns a binary tree using tuples from the boolean function given
@@ -113,13 +115,29 @@ listPerms([]) -> [[]];
 listPerms(L) -> [[H|T] || H<-L, T<-listPerms(L--[H])]. % every element in list will be the head and so on
 
 
+%%% MAIN FUNCTION:
 %% exp_to_bdd - The function receives a Boolean function and returns the corresponding BDD tree
 % representation for that Boolean function, by the ordering it'll chose the most efficient one
 exp_to_bdd(BoolFunc, Ordering) ->
-  % timer start
   Start = os:timestamp(), % saving time
-  Best_BDD = getBestBdd( getAllBdds(BoolFunc, listPerms(getVars(BoolFunc)) ), Ordering), % get the best bdd, from all kinds of bdds by method ordering
-  io:format("Total time taken: ~f seconds~n", [timer:now_diff(os:timestamp(), Start) / math:pow(10,6)]),
+  case Ordering of
+    tree_height ->   % 2 is the place of the height
+      Best_BDD = getMinOrder( BoolFunc, 2), % get the best bdd, from all kinds of bdds by method 'Ordering'
+      Error = 0;
+    num_of_nodes ->  % 3 is the place of the number of nodes
+      Best_BDD = getMinOrder( BoolFunc, 3),
+      Error = 0;
+    num_of_leafs ->  % 4 is the place of the number of leaves
+      Best_BDD = getMinOrder( BoolFunc, 4),
+      Error = 0;
+    _ -> Best_BDD = Ordering,
+      Error =1
+  end,
+  case Error of
+    0 -> io:format("Total time taken: ~f milliseconds~nAnd the answer is: ",
+      [timer:now_diff(os:timestamp(), Start) / math:pow(10,3)]);
+    1 -> io:fwrite("WRONG ORDERING METHOD!~nGiven the corresponding value: ")
+  end,
   Best_BDD.
 
 
@@ -130,16 +148,41 @@ getAllBdds({BoolFunc}, _, []) when is_number(BoolFunc) -> {BoolFunc};           
 getAllBdds(BoolFunc, [H|T], All_BDDs) -> getAllBdds(BoolFunc, T, [exp2Tree(BoolFunc, H)|All_BDDs]). % adding new bdd to the list
 
 
-%% getBestBdd - choosing the best bdd by 'Ordering' method
+%% getMinOrder - choosing the best bdd by 'Ordering' method (Ordering is a number now)
 % * { {Left,Value,Right}, #Height, #Nodes, #Leaves}
-getBestBdd(All_BDDs, Ordering) ->
-  case Ordering of
-    tree_height -> getMinOrder(All_BDDs,2,[]); % 2 is the place of the height
-    num_of_nodes -> getMinOrder(All_BDDs,3,[]); % 3 is the place of the number of nodes
-    num_of_leafs -> getMinOrder(All_BDDs,4,[]) % 4 is the place of the number of leaves
-  end.
+getMinOrder(BoolFunc,Ordering) when is_tuple(BoolFunc) -> % first get all the permutations
+  getMinOrder( getAllBdds(BoolFunc,listPerms(getVars(BoolFunc))) , Ordering,[]).
 getMinOrder([H|T],Order,[]) -> getMinOrder(T,Order,H);                           % first bdd for reference
 getMinOrder([],_,BestBDD) -> element(1,BestBDD);                                 % returns the list which is the BDD
 getMinOrder([H|T],Order,BestBDD) when element(Order,H)<element(Order,BestBDD) -> % there is a better BDD which is H
       getMinOrder([T],Order,H);
 getMinOrder([_|T],Order,BestBDD) -> getMinOrder(T,Order,BestBDD).                % the head isn't better than BestBDD
+
+
+%%% MAIN FUNCTION:
+%% solve_bdd - solving bdd tree with the variables it got assigned
+solve_bdd(BddTree,Assign) ->
+  Start = os:timestamp(), % saving time
+  FixedAssign = assignVar(true,1,assignVar(false,0,Assign)),    % changing true and false to 1,0
+  Bdd_solution = solveIt(BddTree,FixedAssign),                  % solving...
+  io:format("Total time taken: ~f milliseconds~n", [timer:now_diff(os:timestamp(), Start) / math:pow(10,3)]),
+  Bdd_solution.
+
+
+%% solveIt - returns a solution, for a BddTree, with the list of value assignments
+% * lists:keyfind(X,1,List) - returns the tuple which has the variable X
+solveIt({Var,Left,Right},Assigns) ->
+  VarTuple = lists:keyfind(Var,1,Assigns),  % finding the relevant assignment
+  case is_tuple(VarTuple) of
+    true -> case element(2, VarTuple) of    % Var has assignment
+              1 -> solveIt(Right,Assigns);  % 1 = right side of the tree
+              0 -> solveIt(Left,Assigns)    % 0 = left side of the tree
+            end;
+    false ->  % no special assignment for Var - continue to the sons
+      NewLeft = solveIt(Left,Assigns), NewRight = solveIt(Right,Assigns),
+            case {NewLeft,NewRight} of
+              {Node,Node} -> Node;               % both sub-trees are identical - minimizing the tree
+              {_,_} -> {Var,NewLeft,NewRight}    % different, create the tree again
+            end
+  end;
+solveIt(BddTree,_) -> BddTree.              % no more assignments could happen / this is a number already
