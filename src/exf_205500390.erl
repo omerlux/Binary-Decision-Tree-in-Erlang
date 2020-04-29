@@ -10,7 +10,7 @@
 -author("omerlux").
 
 %%API
--export([exp_to_bdd/2, solve_bdd/2,assignVar/3,computeExp/1]).
+-export([exp_to_bdd/2, solve_bdd/2, randomBoolFunc/1]).
 %%%-------------------------------------------------------------------
 %% computeExp  - COMPUTES the EXPRESSION {Op, BF} when BF is bool function or a variable
 computeExp({'not',Var}) when Var=:=1 -> 0;
@@ -96,11 +96,12 @@ createNode(Val,L,R) -> {
 getVars(BoolFunc) -> cleanDuplicates( getVars(BoolFunc,[]) ).               % getting vars and cleaning duplicates
 getVars(BoolFunc,List) ->
   case BoolFunc of
-    {'not',Var} when not is_tuple(Var) -> [Var|List];                       % Var will be variable
-    {'not',BF} -> getVars(BF,List);                                         % BF will be bool func
-    {_,{BF1,BF2}} when is_tuple(BF1) -> getVars(BF1,List)++getVars(BF2,[]); % BF1,2 will be a bool func (_ is the operator)
-    {_,{Var1,BF2}} when is_tuple(BF2) -> getVars(BF2,[Var1|List]);          % BF2 is bool func, Var1 is variable
-    {_,{Var1,Var2}} -> [Var1|[Var2|List]];                                  % Var1, Var2 are variables
+    {'not', Var} when not is_tuple(Var) -> [Var|List];                       % Var will be variable
+    {'not', BF} -> getVars(BF,List);                                         % BF will be bool func
+    {_, {BF1, BF2}} when is_tuple(BF1) -> getVars(BF1,List)++getVars(BF2,[]); % BF1,2 will be a bool func (_ is the operator)
+    {_, {Var1, BF2}} when is_tuple(BF2) -> getVars(BF2,[Var1|List]);          % BF2 is bool func, Var1 is variable
+    {_, {Var1, Var2}} -> [Var1|[Var2|List]];                                  % Var1, Var2 are variables
+    {Var} when is_number(Var) -> [];                                        % don't need numbers
     Var -> [Var|List]                                                       % last variable can be alone i.e. {'not',x1}
   end.
 
@@ -186,3 +187,46 @@ solveIt({Var,Left,Right},Assigns) ->
             end
   end;
 solveIt(BddTree,_) -> BddTree.              % no more assignments could happen / this is a number already
+
+
+%%% EXTRAS
+%% randomBoolFunc - creating a random boolean function with max recursive clause N
+randomBoolFunc(0) -> randomVar();   % do not continue!
+randomBoolFunc(N) ->                % N is the maximum recursive clause
+  case rand:uniform(16) of
+    1 -> {randomOp(), randomBoolFunc(N-1),randomBoolFunc(N-1)};
+    2 -> {randomOp(), randomVar(),randomBoolFunc(N-1)};
+    3 -> {randomOp(), randomBoolFunc(N-1), randomVar()};
+    4 -> {randomOp(), randomVar(), randomVar()};
+
+    5 -> {randomOp(), {'not',randomBoolFunc(N-1)},randomBoolFunc(N-1)};
+    6 -> {randomOp(), {'not',randomVar()},randomBoolFunc(N-1)};
+    7 -> {randomOp(), {'not',randomBoolFunc(N-1)}, randomVar()};
+    8 -> {randomOp(), {'not',randomVar()}, randomVar()};
+
+    9 -> {randomOp(), randomBoolFunc(N-1),{'not',randomBoolFunc(N-1)}};
+    10 -> {randomOp(), randomVar(),{'not',randomBoolFunc(N-1)}};
+    11 -> {randomOp(), randomBoolFunc(N-1), {'not',randomVar()}};
+    12 -> {randomOp(), randomVar(), {'not',randomVar()}};
+
+    13 -> {randomOp(), {'not',randomBoolFunc(N-1)},{'not',randomBoolFunc(N-1)}};
+    14 -> {randomOp(), {'not',randomVar()},{'not',randomBoolFunc(N-1)}};
+    15 -> {randomOp(), {'not',randomBoolFunc(N-1)}, {'not',randomVar()}};
+    16 -> {randomOp(), {'not',randomVar()}, {'not',randomVar()}}
+  end.
+
+%% randomVar - randomize a variable
+randomVar() ->
+  case rand:uniform(4) of
+    1 -> x1;
+    2 -> x2;
+    3 -> x3;
+    4 -> x4
+  end.
+
+%% randomVar - randomize a variable
+randomOp() ->
+  case rand:uniform(2) of
+    1 -> 'and';
+    2 -> 'or'
+  end.
